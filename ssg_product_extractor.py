@@ -116,6 +116,7 @@ def extract_product(driver, url, status_callback=None):
         "색상": "",
         "사이즈": "",
         "모델번호": "",
+        "대표이미지": "",
         "상품상세이미지": "",
         "오류": "",
     }
@@ -251,12 +252,42 @@ def extract_product(driver, url, status_callback=None):
 
         result["사이즈"] = ", ".join(all_sizes)
 
-        # ── 상품상세 이미지 URL ────────────────────────────────────
-        # div.cdtl_sec.cdtl_seller_html 내부 img 태그 src 수집
+        # ── 대표이미지 ─────────────────────────────────────────────
+        # #mainImg → .cdtl_img_area img 순으로 시도
+        try:
+            for sel in ["#mainImg", ".cdtl_img_area img", ".cdtl_img img"]:
+                try:
+                    el = driver.find_element(By.CSS_SELECTOR, sel)
+                    src = (el.get_attribute("src") or el.get_attribute("data-src") or "").strip()
+                    if src and src.startswith("http"):
+                        result["대표이미지"] = src
+                        break
+                except Exception:
+                    continue
+        except Exception:
+            log("⚠ 대표이미지 추출 실패")
+
+        # ── 상품상세 이미지 ────────────────────────────────────────
+        # div.cdtl_sec.cdtl_seller_html — lazy load 대응: 스크롤 후 수집
         try:
             detail_div = driver.find_element(
                 By.CSS_SELECTOR, "div.cdtl_sec.cdtl_seller_html"
             )
+            # 상세 영역까지 천천히 스크롤해서 lazy load 트리거
+            detail_top = driver.execute_script(
+                "return arguments[0].getBoundingClientRect().top + window.scrollY", detail_div
+            )
+            detail_h = driver.execute_script("return arguments[0].scrollHeight", detail_div)
+            step = max(400, detail_h // 10)
+            pos = detail_top
+            while pos < detail_top + detail_h:
+                driver.execute_script(f"window.scrollTo(0, {pos})")
+                time.sleep(0.3)
+                pos += step
+            driver.execute_script(f"window.scrollTo(0, {detail_top + detail_h})")
+            time.sleep(1.5)  # 마지막 이미지 로드 대기
+
+            # 스크롤 후 img src 재수집
             imgs = detail_div.find_elements(By.TAG_NAME, "img")
             img_urls = []
             for img in imgs:
@@ -266,9 +297,7 @@ def extract_product(driver, url, status_callback=None):
                     or img.get_attribute("data-original")
                     or ""
                 ).strip()
-                # 유효한 http URL이고 중복 아닌 경우만
                 if src and src.startswith("http") and src not in img_urls:
-                    # 썸네일/아이콘 제외 (필요시 조건 추가)
                     img_urls.append(src)
             result["상품상세이미지"] = "\n".join(img_urls)
 

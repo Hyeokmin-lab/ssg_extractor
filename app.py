@@ -5,9 +5,6 @@ SSG.COM 상품 정보 추출기 - Streamlit UI
 import streamlit as st
 import pandas as pd
 from io import BytesIO
-import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
 import time
 import requests
 
@@ -27,12 +24,44 @@ st.markdown("""
     .stButton > button { height: 48px; font-size: 0.95rem; font-weight: 600; border-radius: 6px; }
     .stButton > button[kind="primary"] { background-color: #e74c3c !important; border-color: #e74c3c !important; }
     .stButton > button[kind="primary"]:hover { background-color: #c0392b !important; border-color: #c0392b !important; }
-    .status-box { background: #f0f4ff; border-left: 4px solid #3b82f6; padding: 10px 14px; border-radius: 4px; font-size: 0.875rem; color: #1e40af; margin: 8px 0; }
-    .stDataFrame { border-radius: 8px; overflow: hidden; }
     hr { margin: 1.2rem 0 !important; }
-    .stDownloadButton > button { background-color: #22c55e !important; color: white !important; border-color: #22c55e !important; height: 44px; font-weight: 600; border-radius: 6px; width: 100%; }
-    .product-header { background: #f8f9fa; border-left: 4px solid #e74c3c; padding: 10px 14px; border-radius: 4px; margin: 20px 0 10px 0; }
-    .product-meta { color: #666; font-size: 0.85rem; margin-top: 4px; }
+
+    /* 진행 상태 박스 */
+    .status-box {
+        background: #f0f4ff; border-left: 4px solid #3b82f6;
+        padding: 10px 14px; border-radius: 4px;
+        font-size: 0.875rem; color: #1e40af; margin: 8px 0;
+    }
+
+    /* 상품 카드 */
+    .product-card {
+        border: 1px solid #e5e7eb; border-radius: 10px;
+        padding: 18px 20px; margin: 20px 0;
+        background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    }
+    .product-card-title {
+        font-size: 1rem; font-weight: 700; color: #111;
+        border-bottom: 2px solid #e74c3c;
+        padding-bottom: 8px; margin-bottom: 12px;
+    }
+    .product-no {
+        display: inline-block; background: #e74c3c; color: #fff;
+        font-size: 0.75rem; font-weight: 700;
+        border-radius: 4px; padding: 2px 8px; margin-right: 8px;
+    }
+    .info-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; margin-bottom: 14px; }
+    .info-table th {
+        width: 90px; background: #f3f4f6; color: #555;
+        font-weight: 600; padding: 7px 10px;
+        border: 1px solid #e5e7eb; text-align: left;
+    }
+    .info-table td { padding: 7px 10px; border: 1px solid #e5e7eb; color: #222; }
+    .section-label {
+        font-size: 0.8rem; font-weight: 700; color: #888;
+        text-transform: uppercase; letter-spacing: 0.05em;
+        margin: 14px 0 6px 0;
+    }
+    .img-divider { border: none; border-top: 1px dashed #e5e7eb; margin: 14px 0; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -48,16 +77,13 @@ st.markdown("---")
 # URL 입력
 st.markdown("🔗 **SSG.COM 상품 URL 입력**")
 urls_input = st.text_area(
-    label="urls",
-    label_visibility="collapsed",
+    label="urls", label_visibility="collapsed",
     placeholder="URL을 한 줄에 하나씩 입력하세요.\n(예: https://www.ssg.com/item/itemView.ssg?itemId=1000795246042)",
-    height=160,
-    key="url_textarea",
+    height=160, key="url_textarea",
 )
-
 st.markdown("---")
 
-# 버튼 행
+# 버튼
 col_start, col_reset = st.columns([2, 1])
 with col_start:
     start_btn = st.button("🔍 추출 시작", use_container_width=True, type="primary")
@@ -81,8 +107,8 @@ if start_btn:
         prog_bar   = st.progress(0)
         status_box = st.empty()
         log_area   = st.empty()
-        results    = []
-        log_msgs   = []
+        results = []
+        log_msgs = []
 
         def update_log(msg):
             log_msgs.append(msg)
@@ -92,7 +118,8 @@ if start_btn:
         try:
             for idx, url in enumerate(raw_urls):
                 status_box.markdown(
-                    f'<div class="status-box">⏳ 처리 중... ({idx+1} / {len(raw_urls)})  <code>{url[:70]}</code></div>',
+                    f'<div class="status-box">⏳ 처리 중... ({idx+1} / {len(raw_urls)}) '
+                    f'<code>{url[:65]}</code></div>',
                     unsafe_allow_html=True,
                 )
                 update_log(f"[{idx+1}] {url[:60]}... 추출 시작")
@@ -103,7 +130,7 @@ if start_btn:
                 else:
                     update_log(f"  ✅ 완료 | {res['브랜드']} | {res['상품명'][:30]}")
                 prog_bar.progress((idx + 1) / len(raw_urls))
-                time.sleep(0.5)
+                time.sleep(0.3)
         finally:
             driver.quit()
 
@@ -115,87 +142,79 @@ if start_btn:
             unsafe_allow_html=True,
         )
 
-# 결과 표시
+# ── 결과 카드 표시 ────────────────────────────────────────────────
 if st.session_state.results:
     st.markdown("---")
     st.subheader(f"📋 추출 결과 ({len(st.session_state.results)}개)")
 
-    df = pd.DataFrame(st.session_state.results)
-    display_cols = ["브랜드", "상품명", "판매가", "색상", "사이즈", "모델번호", "오류"]
-    st.dataframe(df[[c for c in display_cols if c in df.columns]], use_container_width=True, height=300)
+    IMG_HEADERS = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Referer": "https://www.ssg.com/",
+    }
 
-    # Excel 생성
-    def build_excel(results):
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = "SSG 상품정보"
-        headers    = ["번호", "브랜드", "상품명", "판매가", "색상", "사이즈", "모델번호", "URL", "상품상세이미지URL", "오류"]
-        col_widths = [6, 16, 50, 12, 30, 30, 16, 50, 60, 30]
-        header_fill  = PatternFill("solid", fgColor="C0392B")
-        header_font  = Font(bold=True, color="FFFFFF", size=11)
-        center_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        left_align   = Alignment(horizontal="left",   vertical="center", wrap_text=True)
-        thin_border  = Border(left=Side(style="thin"), right=Side(style="thin"), top=Side(style="thin"), bottom=Side(style="thin"))
-        ws.row_dimensions[1].height = 28
-        for col_idx, (h, w) in enumerate(zip(headers, col_widths), start=1):
-            cell = ws.cell(row=1, column=col_idx, value=h)
-            cell.fill = header_fill; cell.font = header_font
-            cell.alignment = center_align; cell.border = thin_border
-            ws.column_dimensions[get_column_letter(col_idx)].width = w
-        alt_fill = PatternFill("solid", fgColor="FEF9F9")
-        for row_idx, res in enumerate(results, start=2):
-            ws.row_dimensions[row_idx].height = 20
-            fill = alt_fill if row_idx % 2 == 0 else PatternFill()
-            for col_idx, val in enumerate([
-                row_idx-1, res.get("브랜드",""), res.get("상품명",""), res.get("판매가",""),
-                res.get("색상",""), res.get("사이즈",""), res.get("모델번호",""),
-                res.get("URL",""), res.get("상품상세이미지",""), res.get("오류",""),
-            ], start=1):
-                cell = ws.cell(row=row_idx, column=col_idx, value=val)
-                cell.border = thin_border
-                cell.alignment = center_align if col_idx == 1 else left_align
-                if fill.fill_type: cell.fill = fill
-        buf = BytesIO(); wb.save(buf); buf.seek(0)
-        return buf
+    def load_image(url):
+        try:
+            resp = requests.get(url, headers=IMG_HEADERS, timeout=15)
+            resp.raise_for_status()
+            return BytesIO(resp.content)
+        except Exception:
+            return None
 
-    excel_buf = build_excel(st.session_state.results)
-    st.markdown("&nbsp;")
-    st.download_button(
-        label="📥 Excel 다운로드",
-        data=excel_buf,
-        file_name="ssg_products.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,
-    )
+    for i, res in enumerate(st.session_state.results, start=1):
+        # 카드 헤더
+        st.markdown(
+            f'<div class="product-card">'
+            f'<div class="product-card-title">'
+            f'<span class="product-no">#{i}</span>'
+            f'{res.get("브랜드", "")} | {res.get("상품명", "")}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
-    # 상품상세 이미지 미리보기
-    has_images = any(r.get("상품상세이미지") for r in st.session_state.results)
-    if has_images:
-        st.markdown("---")
-        st.subheader("🖼️ 상품상세 이미지 미리보기")
+        # 정보 테이블
+        fields = [
+            ("브랜드",   res.get("브랜드", "")),
+            ("상품명",   res.get("상품명", "")),
+            ("판매가",   f'{res.get("판매가", "")}원' if res.get("판매가") else ""),
+            ("색상",     res.get("색상", "")),
+            ("사이즈",   res.get("사이즈", "")),
+            ("모델번호", res.get("모델번호", "")),
+            ("URL",     f'<a href="{res.get("URL","")}" target="_blank">링크 열기</a>' if res.get("URL") else ""),
+        ]
+        rows = "".join(
+            f'<tr><th>{k}</th><td>{v}</td></tr>' for k, v in fields
+        )
+        st.markdown(
+            f'<table class="info-table">{rows}</table></div>',
+            unsafe_allow_html=True,
+        )
 
-        IMG_HEADERS = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "Referer": "https://www.ssg.com/",
-        }
+        # 대표이미지
+        main_img_url = res.get("대표이미지", "").strip()
+        if main_img_url:
+            st.markdown('<p class="section-label">🏷 대표이미지</p>', unsafe_allow_html=True)
+            img_data = load_image(main_img_url)
+            if img_data:
+                st.image(img_data, use_container_width=True)
+            else:
+                st.caption(f"⚠ 대표이미지 로드 실패")
 
-        for res in st.session_state.results:
-            img_block = res.get("상품상세이미지", "").strip()
-            if not img_block:
-                continue
-
+        # 상품상세 이미지
+        detail_block = res.get("상품상세이미지", "").strip()
+        if detail_block:
+            detail_urls = [u.strip() for u in detail_block.splitlines() if u.strip()]
             st.markdown(
-                f'<div class="product-header">'
-                f'<b>{res.get("브랜드","")} | {res.get("상품명","")}</b>'
-                f'<div class="product-meta">모델번호: {res.get("모델번호","")} &nbsp;|&nbsp; 판매가: {res.get("판매가","")}원</div>'
-                f'</div>',
+                f'<hr class="img-divider"><p class="section-label">🖼 상품상세 이미지 ({len(detail_urls)}장)</p>',
                 unsafe_allow_html=True,
             )
+            for img_url in detail_urls:
+                img_data = load_image(img_url)
+                if img_data:
+                    st.image(img_data, use_container_width=True)
+                else:
+                    st.caption(f"⚠ 로드 실패: {img_url[:70]}")
 
-            for img_url in [u.strip() for u in img_block.splitlines() if u.strip()]:
-                try:
-                    resp = requests.get(img_url, headers=IMG_HEADERS, timeout=15)
-                    resp.raise_for_status()
-                    st.image(BytesIO(resp.content), use_container_width=True)
-                except Exception:
-                    st.caption(f"⚠ 이미지 로드 실패: {img_url[:80]}")
+        if res.get("오류"):
+            st.error(f"오류: {res['오류']}")
+
+        st.markdown("---")
