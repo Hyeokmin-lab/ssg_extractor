@@ -222,12 +222,23 @@ def extract_product(driver, url, status_callback=None):
         all_sizes = []
 
         if color_group and colors:
-            color_lis = color_group.find_elements(
+            # 색상 개수만 먼저 파악 (DOM 참조 없이 index로 순회)
+            color_count = len(color_group.find_elements(
                 By.CSS_SELECTOR, ".cdtl_select_lst li"
-            )
+            ))
 
-            for li in color_lis:
+            for idx in range(color_count):
                 try:
+                    # 매 반복마다 DOM 재조회 → StaleElement 방지
+                    color_group = driver.find_elements(
+                        By.CSS_SELECTOR, "#_ordOpt_area .cdtl_opt_group"
+                    )[0]
+                    size_group = driver.find_elements(
+                        By.CSS_SELECTOR, "#_ordOpt_area .cdtl_opt_group"
+                    )[1] if len(driver.find_elements(
+                        By.CSS_SELECTOR, "#_ordOpt_area .cdtl_opt_group"
+                    )) > 1 else None
+
                     # 드롭다운 토글 버튼 클릭해서 열기
                     drop_btn = color_group.find_element(
                         By.CSS_SELECTOR, "a._drop_select"
@@ -235,8 +246,11 @@ def extract_product(driver, url, status_callback=None):
                     driver.execute_script("arguments[0].click();", drop_btn)
                     time.sleep(0.4)
 
-                    # 색상 <li> 안의 <a> 클릭 → ssg_react_v2.direct_call 발동
-                    link = li.find_element(By.CSS_SELECTOR, "a.clickable")
+                    # 색상 <li> 목록 재조회 후 해당 인덱스 클릭
+                    color_lis = color_group.find_elements(
+                        By.CSS_SELECTOR, ".cdtl_select_lst li"
+                    )
+                    link = color_lis[idx].find_element(By.CSS_SELECTOR, "a.clickable")
                     driver.execute_script("arguments[0].click();", link)
                     time.sleep(2.0)   # AJAX 사이즈 로딩 대기
 
@@ -266,7 +280,7 @@ def extract_product(driver, url, status_callback=None):
                                 pass
 
                 except Exception as e:
-                    log(f"⚠ 색상 클릭 중 오류: {e}")
+                    log(f"⚠ 색상 클릭 중 오류 (index {idx}): {e}")
                     continue
 
         result["사이즈"] = ", ".join(all_sizes)
