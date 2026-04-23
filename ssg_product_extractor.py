@@ -194,50 +194,79 @@ def extract_product(driver, url, status_callback=None):
         except Exception:
             log("⚠ 모델번호 추출 실패")
 
-        # ── 색상 (ordOpt1) ────────────────────────────────────────
+        # ── 옵션 그룹 공통 영역 ───────────────────────────────────
+        # #_ordOpt_area 안에 cdtl_opt_group 이 색상/사이즈 순서로 있음
+        opt_groups = driver.find_elements(
+            By.CSS_SELECTOR, "#_ordOpt_area .cdtl_opt_group"
+        )
+        color_group = opt_groups[0] if len(opt_groups) > 0 else None
+        size_group  = opt_groups[1] if len(opt_groups) > 1 else None
+
+        # ── 색상 ──────────────────────────────────────────────────
         colors = []
         try:
-            sel_el = driver.find_element(By.ID, "ordOpt1")
-            opts = sel_el.find_elements(By.CSS_SELECTOR, "option")
-            for opt in opts:
+            color_sel_el = driver.find_element(By.ID, "ordOpt1")
+            for opt in color_sel_el.find_elements(By.CSS_SELECTOR, "option"):
                 val = opt.get_attribute("value")
                 if val:
                     colors.append(val)
         except Exception:
-            log("⚠ 색상 추출 실패")
+            log("⚠ 색상 select 접근 실패")
 
         result["색상"] = ", ".join(colors)
 
-        # ── 사이즈 (ordOpt2, 색상 선택 후 동적 로딩) ─────────────
+        # ── 사이즈 (커스텀 드롭다운 직접 클릭) ──────────────────
+        # SSG는 ssg_react_v2.direct_call() 기반 커스텀 드롭다운이라
+        # hidden select에 JS change 이벤트를 쏘는 방식은 동작하지 않음.
+        # 실제 눈에 보이는 <li> 항목을 JS click()으로 눌러야 함.
         all_sizes = []
-        if colors:
-            for color_val in colors:
-                try:
-                    # JS로 hidden select 값 변경 및 change 이벤트 발생
-                    driver.execute_script(
-                        """
-                        var sel = document.getElementById('ordOpt1');
-                        if (sel) {
-                            sel.value = arguments[0];
-                            sel.dispatchEvent(new Event('change', {bubbles: true}));
-                            if (typeof ItmOp !== 'undefined') {
-                                ItmOp.changeUitemIptn(sel);
-                            }
-                        }
-                        """,
-                        color_val,
-                    )
-                    time.sleep(1.8)  # AJAX 응답 대기
 
-                    size_sel_el = driver.find_element(By.ID, "ordOpt2")
-                    size_opts = size_sel_el.find_elements(
-                        By.CSS_SELECTOR, "option"
+        if color_group and colors:
+            color_lis = color_group.find_elements(
+                By.CSS_SELECTOR, ".cdtl_select_lst li"
+            )
+
+            for li in color_lis:
+                try:
+                    # 드롭다운 토글 버튼 클릭해서 열기
+                    drop_btn = color_group.find_element(
+                        By.CSS_SELECTOR, "a._drop_select"
                     )
-                    for opt in size_opts:
-                        val = opt.get_attribute("value")
-                        if val and val not in all_sizes:
-                            all_sizes.append(val)
-                except Exception:
+                    driver.execute_script("arguments[0].click();", drop_btn)
+                    time.sleep(0.4)
+
+                    # 색상 <li> 안의 <a> 클릭 → ssg_react_v2.direct_call 발동
+                    link = li.find_element(By.CSS_SELECTOR, "a.clickable")
+                    driver.execute_script("arguments[0].click();", link)
+                    time.sleep(2.0)   # AJAX 사이즈 로딩 대기
+
+                    # hidden select#ordOpt2 에서 사이즈 수집
+                    try:
+                        size_sel_el = driver.find_element(By.ID, "ordOpt2")
+                        for opt in size_sel_el.find_elements(By.CSS_SELECTOR, "option"):
+                            val = opt.get_attribute("value")
+                            if val and val not in all_sizes:
+                                all_sizes.append(val)
+                    except Exception:
+                        pass
+
+                    # fallback: 커스텀 사이즈 리스트에서 읽기
+                    if size_group:
+                        size_lis = size_group.find_elements(
+                            By.CSS_SELECTOR, ".cdtl_select_lst li"
+                        )
+                        for sli in size_lis:
+                            try:
+                                txt = sli.find_element(
+                                    By.CSS_SELECTOR, "span.txt"
+                                ).text.strip()
+                                if txt and txt not in all_sizes:
+                                    all_sizes.append(txt)
+                            except Exception:
+                                pass
+
+                except Exception as e:
+                    log(f"⚠ 색상 클릭 중 오류: {e}")
                     continue
 
         result["사이즈"] = ", ".join(all_sizes)
