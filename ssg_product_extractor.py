@@ -143,48 +143,14 @@ def extract_product(driver, url, status_callback=None):
             log("⚠ 상품명 추출 실패")
 
         # ── 판매가 ──────────────────────────────────────────────
-        # 할인내역 툴팁 dl 목록에서 dt="판매가" 행의 가격 우선 추출
-        price_found = False
+        # .cdtl_new_price > em.ssg_price (실제 노출 판매가)
         try:
-            dls = driver.find_elements(By.CSS_SELECTOR, "dl.cdtl_ly_dl")
-            for dl in dls:
-                try:
-                    dt_text = dl.find_element(By.TAG_NAME, "dt").text.strip()
-                    if dt_text == "판매가":
-                        em = dl.find_element(By.CSS_SELECTOR, "em.ssg_price")
-                        raw = em.text.strip().replace(",", "").replace("원", "")
-                        result["판매가"] = raw
-                        price_found = True
-                        break
-                except Exception:
-                    continue
+            el = driver.find_element(
+                By.CSS_SELECTOR, ".cdtl_new_price em.ssg_price"
+            )
+            result["판매가"] = el.text.strip().replace(",", "").replace("원", "")
         except Exception:
-            pass
-
-        # fallback 1: .cdtl_old_price (할인 있을 때 정가 표시 영역)
-        if not price_found:
-            try:
-                el = driver.find_element(
-                    By.CSS_SELECTOR, ".cdtl_old_price em.ssg_price"
-                )
-                result["판매가"] = (
-                    el.text.strip().replace(",", "").replace("원", "")
-                )
-                price_found = True
-            except Exception:
-                pass
-
-        # fallback 2: 메인 노출 가격
-        if not price_found:
-            try:
-                el = driver.find_element(
-                    By.CSS_SELECTOR, ".cdtl_new_price em.ssg_price"
-                )
-                result["판매가"] = (
-                    el.text.strip().replace(",", "").replace("원", "")
-                )
-            except Exception:
-                log("⚠ 판매가 추출 실패")
+            log("⚠ 판매가 추출 실패")
 
         # ── 모델번호 ─────────────────────────────────────────────
         # <p class="cdtl_model_num">모델번호 : KWM26142</p>
