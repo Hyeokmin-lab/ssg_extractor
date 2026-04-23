@@ -5,6 +5,9 @@ SSG.COM 상품 정보 추출기 - Streamlit UI
 import streamlit as st
 import pandas as pd
 from io import BytesIO
+import os
+import zipfile
+import tempfile
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -101,6 +104,8 @@ if "results" not in st.session_state:
     st.session_state.results = []
 if "log_msgs" not in st.session_state:
     st.session_state.log_msgs = []
+if "image_dir" not in st.session_state:
+    st.session_state.image_dir = None
 
 # ────────────────────────────────────────────────────────────────
 # 헤더
@@ -122,6 +127,19 @@ urls_input = st.text_area(
     height=160,
     key="url_textarea",
 )
+
+# ────────────────────────────────────────────────────────────────
+# 이미지 저장 옵션
+# ────────────────────────────────────────────────────────────────
+with st.expander("📷 상품상세 이미지 저장 옵션", expanded=False):
+    save_images = st.checkbox("상품상세 이미지 다운로드", value=False, key="save_images")
+    image_save_path = st.text_input(
+        "저장 폴더 경로",
+        value=os.path.join(os.path.expanduser("~"), "Desktop", "ssg_images"),
+        help="이미지를 저장할 로컬 폴더 경로 (모델번호별 하위 폴더가 자동 생성됩니다)",
+        disabled=not save_images,
+        key="image_save_path",
+    )
 
 st.markdown("---")
 
@@ -176,7 +194,8 @@ if start_btn:
                 )
                 update_log(f"[{idx+1}] {url[:60]}... 추출 시작")
 
-                res = extract_product(driver, url, status_callback=update_log)
+                img_dir = image_save_path if save_images else None
+                res = extract_product(driver, url, status_callback=update_log, image_dir=img_dir)
                 results.append(res)
 
                 if res["오류"]:
@@ -194,6 +213,7 @@ if start_btn:
 
         st.session_state.results  = results
         st.session_state.log_msgs = log_msgs
+        st.session_state.image_dir = image_save_path if save_images else None
 
         status_box.markdown(
             f'<div class="status-box" style="border-color:#22c55e;background:#f0fdf4;color:#15803d;">'
@@ -277,10 +297,40 @@ if st.session_state.results:
     excel_buf = build_excel(st.session_state.results)
 
     st.markdown("&nbsp;")
-    st.download_button(
-        label="📥 Excel 다운로드",
-        data=excel_buf,
-        file_name="ssg_products.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,
-    )
+    dl_col1, dl_col2 = st.columns(2)
+
+    with dl_col1:
+        st.download_button(
+            label="📥 Excel 다운로드",
+            data=excel_buf,
+            file_name="ssg_products.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+
+    with dl_col2:
+        # 이미지 폴더가 있으면 ZIP으로 묶어 다운로드 제공
+        img_dir = st.session_state.get("image_dir")
+        if img_dir and os.path.isdir(img_dir):
+            zip_buf = BytesIO()
+            with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                for root, dirs, files in os.walk(img_dir):
+                    for file in files:
+                        abs_path = os.path.join(root, file)
+                        arc_name = os.path.relpath(abs_path, os.path.dirname(img_dir))
+                        zf.write(abs_path, arc_name)
+            zip_buf.seek(0)
+            st.download_button(
+                label="🖼️ 상세이미지 ZIP 다운로드",
+                data=zip_buf,
+                file_name="ssg_detail_images.zip",
+                mime="application/zip",
+                use_container_width=True,
+            )
+        else:
+            st.button(
+                "🖼️ 상세이미지 ZIP 다운로드",
+                disabled=True,
+                use_container_width=True,
+                help="이미지 저장 옵션을 활성화한 후 추출하면 다운로드가 가능합니다.",
+            )

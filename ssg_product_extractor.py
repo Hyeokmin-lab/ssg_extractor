@@ -98,7 +98,7 @@ def _safe_text(driver, css, default=""):
         return default
 
 
-def extract_product(driver, url, status_callback=None):
+def extract_product(driver, url, status_callback=None, image_dir=None):
     """
     SSG.COM 단일 상품 페이지에서 정보를 추출합니다.
     반환값: dict
@@ -117,6 +117,7 @@ def extract_product(driver, url, status_callback=None):
         "사이즈": "",
         "모델번호": "",
         "상품상세이미지": "",
+        "이미지저장경로": "",
         "오류": "",
     }
 
@@ -271,6 +272,18 @@ def extract_product(driver, url, status_callback=None):
                     # 썸네일/아이콘 제외 (필요시 조건 추가)
                     img_urls.append(src)
             result["상품상세이미지"] = "\n".join(img_urls)
+
+            # ── 상품상세 이미지 다운로드 ────────────────────────
+            if image_dir and img_urls:
+                log(f"  📥 상품상세 이미지 다운로드 중... ({len(img_urls)}장)")
+                saved = download_detail_images(
+                    img_urls,
+                    model_num=result.get("모델번호") or result.get("상품명", "unknown")[:20],
+                    base_dir=image_dir,
+                    log=log,
+                )
+                result["이미지저장경로"] = saved
+
         except Exception:
             log("⚠ 상품상세이미지 추출 실패")
 
@@ -279,3 +292,48 @@ def extract_product(driver, url, status_callback=None):
         log(f"❌ 오류: {e}")
 
     return result
+
+def download_detail_images(img_urls, model_num, base_dir, log=None):
+    """
+    상품상세 이미지 URL 목록을 다운로드하여 {base_dir}/{model_num}/ 폴더에 저장합니다.
+    Returns: 저장 폴더 경로 (str)
+    """
+    import os
+    import requests
+
+    # 파일명에 사용할 수 없는 문자 제거
+    safe_name = re.sub(r'[\\/:*?"<>|]', "_", model_num).strip() or "unknown"
+    save_dir = os.path.join(base_dir, safe_name)
+    os.makedirs(save_dir, exist_ok=True)
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Referer": "https://www.ssg.com/",
+    }
+
+    saved_count = 0
+    for i, url in enumerate(img_urls, start=1):
+        try:
+            # 확장자 추출 (쿼리스트링 제거 후)
+            ext = url.split("?")[0].rsplit(".", 1)[-1].lower()
+            if ext not in ("jpg", "jpeg", "png", "webp", "gif"):
+                ext = "jpg"
+            filepath = os.path.join(save_dir, f"{i:03d}.{ext}")
+
+            resp = requests.get(url, headers=headers, timeout=20)
+            resp.raise_for_status()
+            with open(filepath, "wb") as f:
+                f.write(resp.content)
+            saved_count += 1
+        except Exception as e:
+            if log:
+                log(f"    ⚠ 이미지 {i} 다운로드 실패: {e}")
+            continue
+
+    if log:
+        log(f"  ✅ {saved_count}/{len(img_urls)}장 저장 완료 → {save_dir}")
+
+    return save_dir
