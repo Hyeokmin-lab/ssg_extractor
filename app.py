@@ -189,15 +189,22 @@ if st.session_state.results:
             unsafe_allow_html=True,
         )
 
-        # 대표이미지
-        main_img_url = res.get("대표이미지", "").strip()
-        if main_img_url:
-            st.markdown('<p class="section-label">🏷 대표이미지</p>', unsafe_allow_html=True)
-            img_data = load_image(main_img_url)
-            if img_data:
-                st.image(img_data, use_container_width=True)
-            else:
-                st.caption(f"⚠ 대표이미지 로드 실패")
+        # 대표이미지 (복수)
+        main_block = res.get("대표이미지", "").strip()
+        if main_block:
+            main_urls = [u.strip() for u in main_block.splitlines() if u.strip()]
+            st.markdown(
+                f'<p class="section-label">🏷 대표이미지 ({len(main_urls)}장)</p>',
+                unsafe_allow_html=True,
+            )
+            cols = st.columns(min(len(main_urls), 4))
+            for j, img_url in enumerate(main_urls):
+                img_data = load_image(img_url)
+                with cols[j % len(cols)]:
+                    if img_data:
+                        st.image(img_data, use_container_width=True)
+                    else:
+                        st.caption("⚠ 로드 실패")
 
         # 상품상세 이미지
         detail_block = res.get("상품상세이미지", "").strip()

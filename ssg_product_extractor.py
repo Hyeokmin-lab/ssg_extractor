@@ -253,53 +253,74 @@ def extract_product(driver, url, status_callback=None):
         result["사이즈"] = ", ".join(all_sizes)
 
         # ── 대표이미지 ─────────────────────────────────────────────
-        # #mainImg → .cdtl_img_area img 순으로 시도
+        # .cdtl_pager_lst 썸네일 전체 수집 → _500 → _1200 고해상도 변환
+        # (썸네일이 없으면 #mainImg fallback)
+        rep_imgs = []
         try:
-            for sel in ["#mainImg", ".cdtl_img_area img", ".cdtl_img img"]:
-                try:
-                    el = driver.find_element(By.CSS_SELECTOR, sel)
-                    src = (el.get_attribute("src") or el.get_attribute("data-src") or "").strip()
-                    if src and src.startswith("http"):
-                        result["대표이미지"] = src
-                        break
-                except Exception:
-                    continue
+            thumb_els = driver.find_elements(
+                By.CSS_SELECTOR, ".cdtl_pager_lst li a img.zoom_thumb"
+            )
+            for img in thumb_els:
+                src = (img.get_attribute("src") or "").strip()
+                # _500.jpg / _500.JPG 등 → _1200 으로 변환
+                src = re.sub(r'_\d+(\.(?:jpe?g|png|gif|webp))', r'_1200', src, flags=re.IGNORECASE)
+                if src and src.startswith("http") and src not in rep_imgs:
+                    rep_imgs.append(src)
         except Exception:
-            log("⚠ 대표이미지 추출 실패")
+            pass
+
+        # fallback: #mainImg 단일
+        if not rep_imgs:
+            try:
+                el = driver.find_element(By.CSS_SELECTOR, "#mainImg")
+                src = (el.get_attribute("src") or "").strip()
+                if src:
+                    rep_imgs.append(src)
+            except Exception:
+                log("⚠ 대표이미지 추출 실패")
+
+        result["대표이미지"] = "\n".join(rep_imgs)
 
         # ── 상품상세 이미지 ────────────────────────────────────────
-        # div.cdtl_sec.cdtl_seller_html — lazy load 대응: 스크롤 후 수집
+        # div.cdtl_sec.cdtl_seller_html > div.se-contents 내부
+        # span.se-image img 만 수집 → span.se-video (유튜브 등) 자동 제외
         try:
             detail_div = driver.find_element(
                 By.CSS_SELECTOR, "div.cdtl_sec.cdtl_seller_html"
             )
-            # 상세 영역까지 천천히 스크롤해서 lazy load 트리거
+            # 스크롤하여 lazy load 트리거
             detail_top = driver.execute_script(
-                "return arguments[0].getBoundingClientRect().top + window.scrollY", detail_div
+                "return arguments[0].getBoundingClientRect().top + window.scrollY",
+                detail_div,
             )
-            detail_h = driver.execute_script("return arguments[0].scrollHeight", detail_div)
-            step = max(400, detail_h // 10)
+            detail_h = driver.execute_script(
+                "return arguments[0].scrollHeight", detail_div
+            )
+            step = max(600, detail_h // 12)
             pos = detail_top
             while pos < detail_top + detail_h:
                 driver.execute_script(f"window.scrollTo(0, {pos})")
-                time.sleep(0.3)
+                time.sleep(0.25)
                 pos += step
             driver.execute_script(f"window.scrollTo(0, {detail_top + detail_h})")
-            time.sleep(1.5)  # 마지막 이미지 로드 대기
+            time.sleep(1.5)
 
-            # 스크롤 후 img src 재수집
-            imgs = detail_div.find_elements(By.TAG_NAME, "img")
-            img_urls = []
-            for img in imgs:
+            # span.se-image 내 img만 선택 (span.se-video 는 자동 제외됨)
+            se_imgs = detail_div.find_elements(
+                By.CSS_SELECTOR, "span.se-image img, span.se-drawing-object-wrapper.se-image img"
+            )
+            detail_urls = []
+            for img in se_imgs:
                 src = (
                     img.get_attribute("src")
                     or img.get_attribute("data-src")
                     or img.get_attribute("data-original")
                     or ""
                 ).strip()
-                if src and src.startswith("http") and src not in img_urls:
-                    img_urls.append(src)
-            result["상품상세이미지"] = "\n".join(img_urls)
+                if src and src.startswith("http") and src not in detail_urls:
+                    detail_urls.append(src)
+
+            result["상품상세이미지"] = "\n".join(detail_urls)
 
         except Exception:
             log("⚠ 상품상세이미지 추출 실패")
