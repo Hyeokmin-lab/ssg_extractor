@@ -13,28 +13,78 @@ from selenium.common.exceptions import (
 )
 
 
-def create_driver(headless=True):
+def _build_options(headless=True):
     from selenium.webdriver.chrome.options import Options
-    from selenium.webdriver.chrome.service import Service
-    from webdriver_manager.chrome import ChromeDriverManager
 
     options = Options()
     if headless:
         options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
+    options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument(
         "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     )
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option("useAutomationExtension", False)
+    # Cloud 환경에서 메모리 제한 대응
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-software-rasterizer")
+    options.add_argument("--remote-debugging-port=9222")
+    return options
 
-    driver = webdriver.Chrome(
-        service=Service(ChromeDriverManager().install()), options=options
-    )
+
+def create_driver(headless=True):
+    """
+    실행 환경에 따라 자동으로 ChromeDriver를 선택합니다.
+    - Streamlit Cloud / Linux: 시스템 Chromium 사용
+    - 로컬 Windows/Mac: webdriver-manager 자동 다운로드
+    """
+    import os
+    import shutil
+    from selenium.webdriver.chrome.service import Service
+
+    options = _build_options(headless)
+
+    # ── Streamlit Cloud (Linux) 환경 감지 ──────────────────────
+    # packages.txt 로 설치된 chromium-driver 경로 사용
+    CLOUD_DRIVER_PATHS = [
+        "/usr/bin/chromedriver",
+        "/usr/lib/chromium-browser/chromedriver",
+        "/usr/lib/chromium/chromedriver",
+    ]
+    CLOUD_BINARY_PATHS = [
+        "/usr/bin/chromium-browser",
+        "/usr/bin/chromium",
+        "/usr/lib/chromium-browser/chromium-browser",
+    ]
+
+    cloud_driver = next((p for p in CLOUD_DRIVER_PATHS if os.path.exists(p)), None)
+    cloud_binary = next((p for p in CLOUD_BINARY_PATHS if os.path.exists(p)), None)
+
+    if cloud_driver:
+        # Cloud 환경
+        if cloud_binary:
+            options.binary_location = cloud_binary
+        driver = webdriver.Chrome(
+            service=Service(executable_path=cloud_driver), options=options
+        )
+    else:
+        # 로컬 환경 → webdriver-manager 자동 설치
+        try:
+            from webdriver_manager.chrome import ChromeDriverManager
+            options.add_experimental_option("excludeSwitches", ["enable-automation"])
+            options.add_experimental_option("useAutomationExtension", False)
+            driver = webdriver.Chrome(
+                service=Service(ChromeDriverManager().install()), options=options
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"ChromeDriver 초기화 실패: {e}\n"
+                "Chrome이 설치되어 있는지 확인하거나, packages.txt에 chromium/chromium-driver를 추가하세요."
+            )
+
     driver.execute_script(
         "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
     )
